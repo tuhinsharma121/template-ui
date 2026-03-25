@@ -1,5 +1,4 @@
 import type { Message } from "@langchain/langgraph-sdk";
-import { ProcessedEvent } from "../components/ActivityTimeline";
 
 export interface ChatItem {
   id: string;
@@ -7,7 +6,6 @@ export interface ChatItem {
   timestamp?: Date;
   preview: string;
   messages: Message[];
-  historicalActivities?: Record<string, ProcessedEvent[]>;
 }
 
 export interface ChatState {
@@ -21,7 +19,6 @@ export interface ChatActions {
   deleteChat: (chatId: string) => void;
   renameChat: (chatId: string, newTitle: string) => void;
   updateChatMessages: (chatId: string, messages: Message[]) => void;
-  updateChatActivities: (chatId: string, messageId: string, activities: ProcessedEvent[]) => void;
   clearError: () => void;
   setError: (error: string) => void;
   getChatById: (chatId: string) => ChatItem | undefined;

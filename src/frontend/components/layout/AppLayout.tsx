@@ -90,7 +90,9 @@ export function AppLayout({ children }: AppLayoutProps) {
           console.error('Main content error:', error, errorInfo);
         }}
       >
-        {children}
+        <div className="flex-1 min-w-0 overflow-hidden h-full">
+          {children}
+        </div>
       </ErrorBoundary>
     </div>
   );

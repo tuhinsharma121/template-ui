@@ -1,18 +1,73 @@
 import type React from "react";
 import type { Message } from "@langchain/langgraph-sdk";
 import { ScrollArea } from "./ui/scroll-area";
-import { CheckCircle, ChevronDown, ChevronRight, Copy, CopyCheck, Loader2, Settings } from "lucide-react";
+import { CheckCircle, ChevronDown, ChevronRight, Loader2, Settings } from "lucide-react";
 import { InputForm } from "./InputForm";
-import { useState, ReactNode, useMemo } from "react";
+import { useState, useEffect, useRef, ReactNode, useMemo } from "react";
 import { cn } from "../lib/utils";
 import { Badge } from "./ui/badge";
-import {
-  ProcessedEvent,
-} from "./ActivityTimeline";
-import { StreamEvent } from "../hooks/useDataStream";
 import ReactMarkdown from "react-markdown";
+import remarkGfm from "remark-gfm";
+import mermaid from "mermaid";
 import { TodoListRenderer, isWriteTodosCall, extractTodos } from "./TodoListRenderer";
 import type { TodoItem } from "./TodoListRenderer";
+
+mermaid.initialize({
+  startOnLoad: false,
+  theme: "dark",
+  securityLevel: "loose",
+});
+
+let mermaidIdCounter = 0;
+
+function MermaidDiagram({ chart }: { chart: string }) {
+  const containerRef = useRef<HTMLDivElement>(null);
+  const [svg, setSvg] = useState<string>("");
+  const [error, setError] = useState<string>("");
+
+  useEffect(() => {
+    let cancelled = false;
+    const id = `mermaid-${++mermaidIdCounter}`;
+
+    mermaid
+      .render(id, chart.trim())
+      .then(({ svg: renderedSvg }) => {
+        if (!cancelled) setSvg(renderedSvg);
+      })
+      .catch((err) => {
+        if (!cancelled) setError(String(err));
+      });
+
+    return () => {
+      cancelled = true;
+    };
+  }, [chart]);
+
+  if (error) {
+    return (
+      <pre className="bg-red-950/30 border border-red-700/30 p-3 rounded-lg text-xs text-red-300 my-3 overflow-x-auto">
+        {chart}
+      </pre>
+    );
+  }
+
+  if (!svg) {
+    return (
+      <div className="flex items-center gap-2 text-xs text-neutral-500 my-3">
+        <Loader2 className="w-3 h-3 animate-spin" />
+        Rendering diagram...
+      </div>
+    );
+  }
+
+  return (
+    <div
+      ref={containerRef}
+      className="my-3 overflow-x-auto bg-neutral-900/50 rounded-lg p-4"
+      dangerouslySetInnerHTML={{ __html: svg }}
+    />
+  );
+}
 
 // Markdown component props type from former ReportView
 type MdComponentProps = {
@@ -82,28 +137,45 @@ const mdComponents = {
       {children}
     </blockquote>
   ),
-  code: ({ className, children, ...props }: MdComponentProps) => (
-    <code
-      className={cn(
-        "bg-neutral-900 rounded px-1 py-0.5 font-mono text-xs",
-        className
-      )}
-      {...props}
-    >
-      {children}
-    </code>
-  ),
-  pre: ({ className, children, ...props }: MdComponentProps) => (
-    <pre
-      className={cn(
-        "bg-neutral-900 p-3 rounded-lg overflow-x-auto font-mono text-xs my-3",
-        className
-      )}
-      {...props}
-    >
-      {children}
-    </pre>
-  ),
+  code: ({ className, children, ...props }: MdComponentProps) => {
+    const match = /language-(\w+)/.exec(className || "");
+    const lang = match?.[1];
+    const codeText = String(children).replace(/\n$/, "");
+
+    if (lang === "mermaid") {
+      return <MermaidDiagram chart={codeText} />;
+    }
+
+    return (
+      <code
+        className={cn(
+          "bg-neutral-900 rounded px-1 py-0.5 font-mono text-xs",
+          className
+        )}
+        {...props}
+      >
+        {children}
+      </code>
+    );
+  },
+  pre: ({ className, children, ...props }: MdComponentProps) => {
+    const child = children as React.ReactElement<{ className?: string }>;
+    if (child?.props?.className?.includes("language-mermaid")) {
+      return <>{children}</>;
+    }
+
+    return (
+      <pre
+        className={cn(
+          "bg-neutral-900 p-3 rounded-lg overflow-x-auto font-mono text-xs my-3",
+          className
+        )}
+        {...props}
+      >
+        {children}
+      </pre>
+    );
+  },
   hr: ({ className, ...props }: MdComponentProps) => (
     <hr className={cn("border-neutral-600 my-4", className)} {...props} />
   ),
@@ -162,7 +234,6 @@ const mdComponents = {
 // Props for HumanMessageBubble
 interface HumanMessageBubbleProps {
   message: Message;
-  mdComponents: typeof mdComponents;
 }
 
 // HumanMessageBubble Component
@@ -173,7 +244,7 @@ const HumanMessageBubble: React.FC<HumanMessageBubbleProps> = ({
     <div
       className={`text-white rounded-3xl break-words min-h-7 bg-neutral-700 max-w-[100%] sm:max-w-[90%] p-3 rounded-br-xs`}
     >
-      <ReactMarkdown components={mdComponents}>
+      <ReactMarkdown remarkPlugins={[remarkGfm]} components={mdComponents}>
         {typeof message.content === "string"
           ? message.content
           : JSON.stringify(message.content)}
@@ -185,21 +256,16 @@ const HumanMessageBubble: React.FC<HumanMessageBubbleProps> = ({
 // Props for AiMessageBubble
 interface AiMessageBubbleProps {
   message: Message;
-  mdComponents?: typeof mdComponents;
-  handleCopy?: (text: string, messageId: string) => void;
-  copiedMessageId?: string | null;
 }
 
 // AiMessageBubble Component
 const AiMessageBubble: React.FC<AiMessageBubbleProps> = ({
   message,
-  handleCopy = () => { },
-  copiedMessageId = '',
 }) => {
   return (
     <div className={`relative break-words flex flex-col w-full`}>
       <div className="w-full prose prose-invert max-w-none">
-        <ReactMarkdown components={mdComponents}>
+        <ReactMarkdown remarkPlugins={[remarkGfm]} components={mdComponents}>
           {typeof message.content === "string"
             ? message.content
             : JSON.stringify(message.content)}
@@ -211,13 +277,10 @@ const AiMessageBubble: React.FC<AiMessageBubbleProps> = ({
 
 interface ChatMessagesViewProps {
   messages: Message[];
-  streamEvents?: StreamEvent[];
   isLoading: boolean;
   scrollAreaRef: React.RefObject<HTMLDivElement | null>;
   onSubmit: (inputValue: string) => void;
   onCancel: () => void;
-  liveActivityEvents: ProcessedEvent[];
-  historicalActivities: Record<string, ProcessedEvent[]>;
 }
 
 interface AIMessageRendererProps {
@@ -263,21 +326,21 @@ export function AIMessageRenderer({ message, latestTodos, skipWriteTodos }: AIMe
       for (let idx = 0; idx < nonTodoToolCalls.length; idx++) {
         const toolCall = nonTodoToolCalls[idx];
         elements.push(
-          <div key={`${message.id || 'tc'}-${idx}`} className="bg-blue-900/20 border border-blue-700/30 rounded-lg overflow-hidden w-full">
+          <div key={`${message.id || 'tc'}-${idx}`} className="bg-blue-900/20 border border-blue-700/30 rounded-lg overflow-hidden w-full min-w-0">
             <button
               onClick={() => toggleExpand(`${message.id}-${idx}`)}
-              className="w-full flex items-center justify-between p-4 hover:bg-blue-800/20 transition-colors"
+              className="w-full flex items-center justify-between p-4 hover:bg-blue-800/20 transition-colors min-w-0"
             >
-              <div className="flex items-center gap-3">
-                <Settings className="w-5 h-5 text-blue-400" />
-                <div className="text-left">
+              <div className="flex items-center gap-3 min-w-0">
+                <Settings className="w-5 h-5 text-blue-400 shrink-0" />
+                <div className="text-left min-w-0">
                   <div className="text-sm font-medium text-blue-100 flex items-center gap-2">
                     {toolCall.name}
                     {
                       (toolCall as any).content ? (
-                        <CheckCircle className="w-4 h-4 text-green-400" />
+                        <CheckCircle className="w-4 h-4 text-green-400 shrink-0" />
                       ) : (
-                        <Loader2 className="w-4 h-4 text-blue-400 animate-spin" />
+                        <Loader2 className="w-4 h-4 text-blue-400 animate-spin shrink-0" />
                       )
                     }
                   </div>
@@ -288,16 +351,16 @@ export function AIMessageRenderer({ message, latestTodos, skipWriteTodos }: AIMe
                 </div>
               </div>
               {expandedItems.has(`${message.id}-${idx}`) ? (
-                <ChevronDown className="w-4 h-4 text-blue-400" />
+                <ChevronDown className="w-4 h-4 text-blue-400 shrink-0" />
               ) : (
-                <ChevronRight className="w-4 h-4 text-blue-400" />
+                <ChevronRight className="w-4 h-4 text-blue-400 shrink-0" />
               )}
             </button>
 
             {expandedItems.has(`${message.id}-${idx}`) && (
-              <div className="px-4 pb-4 border-t border-blue-700/20">
+              <div className="px-4 pb-4 border-t border-blue-700/20 min-w-0 overflow-hidden">
                 <div className="text-xs text-blue-200/60 mb-2">Arguments:</div>
-                <pre className="text-xs text-blue-100 bg-blue-950/30 p-2 rounded overflow-auto">
+                <pre className="text-xs text-blue-100 bg-blue-950/30 p-2 rounded overflow-auto max-h-60 whitespace-pre-wrap break-all">
                   {JSON.stringify(toolCall.args, null, 2)}
                 </pre>
                 <div className="text-xs text-blue-200/60 mb-2">
@@ -305,7 +368,7 @@ export function AIMessageRenderer({ message, latestTodos, skipWriteTodos }: AIMe
                     (toolCall as any).content ? 'Result:' : 'Running...:'
                   }
                 </div>
-                <pre className="text-xs text-green-100 bg-green-950/30 p-2 rounded overflow-auto">
+                <pre className="text-xs text-green-100 bg-green-950/30 p-2 rounded overflow-auto max-h-60 whitespace-pre-wrap break-all">
                   {JSON.stringify((toolCall as any).content, null, 2)}
                 </pre>
               </div>
@@ -322,14 +385,14 @@ export function AIMessageRenderer({ message, latestTodos, skipWriteTodos }: AIMe
     if (isToolCallResult) {
       return (
         <>
-          <div key={message.id} className="bg-green-900/20 border border-green-700/30 rounded-lg overflow-hidden ml-6 w-full">
+          <div key={message.id} className="bg-green-900/20 border border-green-700/30 rounded-lg overflow-hidden ml-6 w-full min-w-0">
             <button
               onClick={() => toggleExpand(message.id || '')}
-              className="w-full flex items-center justify-between p-3 hover:bg-green-800/20 transition-colors"
+              className="w-full flex items-center justify-between p-3 hover:bg-green-800/20 transition-colors min-w-0"
             >
-              <div className="flex items-center gap-3">
-                <CheckCircle className="w-4 h-4 text-green-400" />
-                <div className="text-left">
+              <div className="flex items-center gap-3 min-w-0">
+                <CheckCircle className="w-4 h-4 text-green-400 shrink-0" />
+                <div className="text-left min-w-0">
                   <div className="text-sm font-medium text-green-100">
                     {message.name} result
                   </div>
@@ -339,16 +402,16 @@ export function AIMessageRenderer({ message, latestTodos, skipWriteTodos }: AIMe
                 </div>
               </div>
               {expandedItems.has(message.id || '') ? (
-                <ChevronDown className="w-4 h-4 text-green-400" />
+                <ChevronDown className="w-4 h-4 text-green-400 shrink-0" />
               ) : (
-                <ChevronRight className="w-4 h-4 text-green-400" />
+                <ChevronRight className="w-4 h-4 text-green-400 shrink-0" />
               )}
             </button>
 
             {expandedItems.has(message.id || '') && (
-              <div className="px-3 pb-3 border-t border-green-700/20">
+              <div className="px-3 pb-3 border-t border-green-700/20 min-w-0 overflow-hidden">
                 <div className="text-xs text-green-200/60 mb-2">Result:</div>
-                <pre className="text-xs text-green-100 bg-green-950/30 p-2 rounded overflow-auto max-h-40">
+                <pre className="text-xs text-green-100 bg-green-950/30 p-2 rounded overflow-auto max-h-60 whitespace-pre-wrap break-all">
                   {typeof message.content === 'string' ? message.content : JSON.stringify(message.content, null, 2)}
                 </pre>
               </div>
@@ -368,7 +431,7 @@ export function AIMessageRenderer({ message, latestTodos, skipWriteTodos }: AIMe
 
 
   return (
-    <div className="space-y-2 mb-4 w-full">
+    <div className="space-y-1 mb-1 w-full min-w-0">
       {renderMessage}
     </div>
   );
@@ -377,24 +440,11 @@ export function AIMessageRenderer({ message, latestTodos, skipWriteTodos }: AIMe
 
 export function ChatMessagesView({
   messages,
-  streamEvents = [],
   isLoading,
   scrollAreaRef,
   onSubmit,
   onCancel,
 }: ChatMessagesViewProps) {
-  const [copiedMessageId, setCopiedMessageId] = useState<string | null>(null);
-
-  const handleCopy = async (text: string, messageId: string) => {
-    try {
-      await navigator.clipboard.writeText(text);
-      setCopiedMessageId(messageId);
-      setTimeout(() => setCopiedMessageId(null), 2000);
-    } catch (err) {
-      console.error("Failed to copy text: ", err);
-    }
-  };
-
   const todoMeta = useMemo(() => {
     let firstTodoIndex = -1;
     let latestTodos: TodoItem[] = [];
@@ -418,7 +468,7 @@ export function ChatMessagesView({
   return (
     <div className="flex flex-col h-full">
       <ScrollArea className="flex-1 overflow-y-auto" ref={scrollAreaRef}>
-        <div className="p-4 md:p-6 space-y-2 max-w-4xl mx-auto pt-16">
+        <div className="p-4 md:p-6 lg:p-8 space-y-1 w-full mx-auto">
           {messages.map((message, index) => {
             if (message.type === 'tool' && message.name === 'write_todos') {
               return null;
@@ -436,10 +486,9 @@ export function ChatMessagesView({
                   {message.type === "human" ? (
                     <HumanMessageBubble
                       message={message}
-                      mdComponents={mdComponents}
                     />
                   ) : (
-                    <div className="w-full max-w-[85%] md:max-w-[80%]">
+                    <div className="w-full min-w-0">
                       <AIMessageRenderer
                         message={message}
                         latestTodos={isFirstTodo ? todoMeta.latestTodos : undefined}
@@ -452,39 +501,6 @@ export function ChatMessagesView({
             );
           })}
 
-          {/* {streamEvents && streamEvents.length > 0 && (
-            <div className="mb-3">
-              <StreamEventRenderer
-                events={streamEvents}
-                isLoading={isLoading}
-              />
-            </div>
-          )} */}
-          {
-            // isLoading &&
-            //   (messages.length === 0 ||
-            //     messages[messages.length - 1].type === "human") && (
-            //     <div className="flex items-start gap-3 mt-3">
-            //       {" "}
-            //       {/* AI message row structure */}
-            //       <div className="relative group max-w-[85%] md:max-w-[80%] rounded-xl p-3 shadow-sm break-words bg-neutral-800 text-neutral-100 rounded-bl-none w-full min-h-[56px]">
-            //         {liveActivityEvents.length > 0 ? (
-            //           <div className="text-xs">
-            //             <ActivityTimeline
-            //               processedEvents={liveActivityEvents}
-            //               isLoading={true}
-            //             />
-            //           </div>
-            //         ) : (
-            //           <div className="flex items-center justify-start h-full">
-            //             <Loader2 className="h-5 w-5 animate-spin text-neutral-400 mr-2" />
-            //             <span>Processing...</span>
-            //           </div>
-            //         )}
-            //       </div>
-            //     </div>
-            //   )
-          }
         </div>
         {isLoading && (
           <div className="flex items-center gap-2 text-xs text-neutral-500 justify-center py-2">

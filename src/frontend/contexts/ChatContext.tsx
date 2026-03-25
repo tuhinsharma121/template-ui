@@ -5,7 +5,6 @@ import type { Message } from "@langchain/langgraph-sdk";
 
 import { ChatItem, ChatState, ChatContextType } from '../types/chat';
 import { chatStorage } from '../services/chatStorage';
-import { ProcessedEvent } from '../components/ActivityTimeline';
 import { getAllThreadsByUserId } from '@/services/agent-rest';
 
 // Action types
@@ -118,7 +117,6 @@ export function ChatProvider({ children }: ChatProviderProps) {
         });
 
         dispatch({ type: 'SET_CHATS', payload: chats });
-        console.log(history)
       } catch (error) {
         console.error(error)
       } finally {
@@ -139,7 +137,6 @@ export function ChatProvider({ children }: ChatProviderProps) {
       timestamp: new Date(),
       preview: "Start a new conversation",
       messages: [],
-      historicalActivities: {},
     };
 
     dispatch({ type: 'ADD_CHAT', payload: newChat });
@@ -189,27 +186,6 @@ export function ChatProvider({ children }: ChatProviderProps) {
     });
   }, [state.chats]);
 
-  const updateChatActivities = useCallback((chatId: string, messageId: string, activities: ProcessedEvent[]) => {
-    const chat = state.chats.find(c => c.id === chatId);
-    if (chat) {
-      const newHistoricalActivities = {
-        ...chat.historicalActivities,
-        [messageId]: [...activities],
-      };
-
-      dispatch({
-        type: 'UPDATE_CHAT',
-        payload: {
-          id: chatId,
-          updates: {
-            historicalActivities: newHistoricalActivities,
-            timestamp: new Date()
-          }
-        }
-      });
-    }
-  }, [state.chats]);
-
   const clearError = useCallback(() => {
     dispatch({ type: 'SET_ERROR', payload: null });
   }, []);
@@ -219,7 +195,6 @@ export function ChatProvider({ children }: ChatProviderProps) {
   }, []);
 
   const getChatById = useCallback((chatId: string) => {
-    console.log('get chat : ', JSON.parse(JSON.stringify({state, chatId})))
     return state.chats.find(chat => chat.id === chatId);
   }, [state]);
 
@@ -232,7 +207,6 @@ export function ChatProvider({ children }: ChatProviderProps) {
     deleteChat,
     renameChat,
     updateChatMessages,
-    updateChatActivities,
     clearError,
     setError,
     getChatById,

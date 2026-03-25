@@ -3,21 +3,6 @@ import type { AIMessage, Message } from "@langchain/langgraph-sdk";
 import { useRefreshableToken } from "./useRefreshableToken";
 import { chatStorage } from "@/services/chatStorage";
 
-export interface ToolCall {
-  name: string;
-  args: Record<string, any>;
-  id: string;
-}
-
-export interface StreamEvent {
-  id: string;
-  type: 'tool_call' | 'tool_result' | 'token' | 'error';
-  content?: string | Message;
-  timestamp: string;
-  chunk_id?: number;
-  tool_calls?: ToolCall[];
-}
-
 interface AgentSteamChunk {
   type: 'token' | 'message';
   content: string | Message;
@@ -43,7 +28,6 @@ export function useDataStream({
     }
   });
 
-  const [streamEvents, setStreamEvents] = useState<StreamEvent[]>([]);
   const [isLoading, setIsLoading] = useState<boolean>(false);
   const abortControllerRef = useRef<AbortController | null>(null);
   const processedChunkIdsRef = useRef<Set<number>>(new Set());
@@ -54,14 +38,6 @@ export function useDataStream({
   useEffect(() => {
     chatStorage.saveChatByThreadId(threadId, messages);
   }, [messages, threadId]);
-
-  useEffect(() => {
-    const abortController = new AbortController();
-
-    return () => {
-      abortController.abort();
-    };
-  }, [apiUrl, threadId, refreshableToken]);
 
   const submit = useCallback(async ({
     messages,
@@ -79,8 +55,6 @@ export function useDataStream({
     setIsLoading(true);
     setMessages(messages);
     chatStorage.saveChatByThreadId(threadId, messages);
-    setStreamEvents([]);
-
     try {
       const headers: Record<string, string> = {
         "Content-Type": "application/json",
@@ -234,5 +208,5 @@ export function useDataStream({
     setIsLoading(false);
   }, []);
 
-  return { messages, streamEvents, isLoading, submit, stop, setMessages };
+  return { messages, isLoading, submit, stop, setMessages };
 }

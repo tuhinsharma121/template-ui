@@ -1,4 +1,4 @@
-import { useState, useRef, useEffect, useCallback, useMemo } from 'react';
+import { useRef, useEffect, useCallback, useMemo } from 'react';
 import { useParams } from 'react-router-dom';
 import type { Message } from "@langchain/langgraph-sdk";
 
@@ -7,29 +7,19 @@ import { useDataStream } from '../hooks/useDataStream';
 import { ChatMessagesView } from '../components/ChatMessagesView';
 import { ChatErrorBoundary } from '../components/ChatErrorBoundary';
 import { Button } from '../components/ui/button';
-import { ProcessedEvent } from '../components/ActivityTimeline';
-
 export function ChatPage({ threadId }: { threadId: string }) {
   const {
     isLoading: chatsLoading,
     error,
     updateChatMessages,
-    updateChatActivities,
     setError,
     getChatById
   } = useChat();
 
-  // Local state
-  const [processedEventsTimeline, setProcessedEventsTimeline] = useState<ProcessedEvent[]>([]);
-  const [historicalActivities, setHistoricalActivities] = useState<Record<string, ProcessedEvent[]>>({});
-
   const scrollAreaRef = useRef<HTMLDivElement>(null);
-  const hasFinalizeEventOccurredRef = useRef(false);
 
   // Get current chat data directly by threadId
   const currentChat = useMemo(() => threadId ? getChatById(threadId) : undefined, [threadId, getChatById]);
-
-  console.log({ currentChat })
 
   // API integration
   const thread = useDataStream({
@@ -45,14 +35,6 @@ export function ChatPage({ threadId }: { threadId: string }) {
       thread.setMessages(currentChat.messages)
     }
   }, [currentChat?.messages, currentChat?.messages?.length]);
-
-  // // Load chat data when threadId changes
-  // useEffect(() => {
-  //   if (currentChat) {
-  //     setHistoricalActivities(currentChat.historicalActivities);
-  //     setProcessedEventsTimeline([]);
-  //   }
-  // }, [currentChat, threadId]);
 
   // Auto-scroll to bottom when messages change
   useEffect(() => {
@@ -75,22 +57,6 @@ export function ChatPage({ threadId }: { threadId: string }) {
     }
   }, [threadId, thread.messages, updateChatMessages]);
 
-  // Handle finalization of activities
-  useEffect(() => {
-    if (
-      hasFinalizeEventOccurredRef.current &&
-      !thread.isLoading &&
-      thread.messages.length > 0 &&
-      threadId
-    ) {
-      const lastMessage = thread.messages[thread.messages.length - 1];
-      if (lastMessage && lastMessage.type === "ai" && lastMessage.id) {
-        updateChatActivities(threadId, lastMessage.id, processedEventsTimeline);
-      }
-      hasFinalizeEventOccurredRef.current = false;
-    }
-  }, [thread.isLoading, threadId, updateChatActivities, thread.messages, processedEventsTimeline]); // Removed thread.messages and processedEventsTimeline to prevent loops
-
   // Handle submit
   const handleSubmit = useCallback(
     async (inputValue: string) => {
@@ -112,11 +78,6 @@ export function ChatPage({ threadId }: { threadId: string }) {
       // Submit to the thread
       try {
         await thread.submit({ messages });
-
-        // Mark that we're waiting for finalization
-        setTimeout(() => {
-          hasFinalizeEventOccurredRef.current = true;
-        }, 100);
       } catch (error) {
         console.error('Failed to submit message:', error);
         setError('Failed to send message. Please try again.');
@@ -130,20 +91,14 @@ export function ChatPage({ threadId }: { threadId: string }) {
     thread.stop();
   }, [thread]);
 
-  // Handle retry for error boundary
   const handleRetry = useCallback(() => {
-    setProcessedEventsTimeline([]);
-    setHistoricalActivities(currentChat?.historicalActivities || {});
-    // Reset any error state
-    if (currentChat) {
-      setHistoricalActivities(currentChat.historicalActivities);
-    }
-  }, [currentChat]);
+    setError('');
+  }, [setError]);
 
   // Show loading while chats are being loaded from localStorage
   if (chatsLoading) {
     return (
-      <main className="flex-1 h-full max-w-4xl mx-auto">
+      <main className="flex-1 h-full w-full">
         <div className="flex flex-col items-center justify-center h-full">
           <div className="flex flex-col items-center justify-center gap-4">
             <div className="animate-spin rounded-full h-8 w-8 border-b-2 border-neutral-400"></div>
@@ -157,7 +112,7 @@ export function ChatPage({ threadId }: { threadId: string }) {
   // Handle case where chat doesn't exist (after chats have loaded)
   if (threadId && !currentChat) {
     return (
-      <main className="flex-1 h-full max-w-4xl mx-auto">
+      <main className="flex-1 h-full w-full">
         <div className="flex flex-col items-center justify-center h-full">
           <div className="flex flex-col items-center justify-center gap-4">
             <h1 className="text-2xl text-neutral-400 font-bold">Chat Not Found</h1>
@@ -174,7 +129,7 @@ export function ChatPage({ threadId }: { threadId: string }) {
   // Handle error state
   if (error) {
     return (
-      <main className="flex-1 h-full max-w-4xl mx-auto">
+      <main className="flex-1 h-full w-full">
         <div className="flex flex-col items-center justify-center h-full">
           <div className="flex flex-col items-center justify-center gap-4">
             <h1 className="text-2xl text-red-400 font-bold">Error</h1>
@@ -193,7 +148,7 @@ export function ChatPage({ threadId }: { threadId: string }) {
 
   // Render chat interface
   return (
-    <main className="flex-1 h-full max-w-4xl mx-auto">
+    <main className="flex-1 h-full w-full min-w-0 overflow-hidden">
       <ChatErrorBoundary
         chatId={threadId}
         onRetry={handleRetry}
@@ -201,13 +156,10 @@ export function ChatPage({ threadId }: { threadId: string }) {
         <ChatMessagesView
           key={threadId}
           messages={thread.messages}
-          streamEvents={thread.streamEvents}
           isLoading={thread.isLoading}
           scrollAreaRef={scrollAreaRef}
           onSubmit={handleSubmit}
           onCancel={handleCancel}
-          liveActivityEvents={processedEventsTimeline}
-          historicalActivities={historicalActivities}
         />
       </ChatErrorBoundary>
     </main>
